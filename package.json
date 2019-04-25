@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/MSJawad/rest_App/issues"
   },
-  "homepage": "https://github.com/MSJawad/rest_App#readme"
+  "homepage": "https://github.com/MSJawad/rest_App#readme",
+  "dependencies": {
+    "bencode": "^2.0.1"
+  }
 }
