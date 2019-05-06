@@ -1,7 +1,7 @@
-# rest_App
-a RESTful api
+# restTorrent
+a RESTful api that will allow you to download torrent files
 
 
-# Forgive thee for a lack of description
+# I have some idea now..
 
-honestly ive got little idea what im gonna do w this. After 4 months of building chatbots and appetite tools for the Co-Operators, i figured it was time to delve a little deeper. will update with a description once I have a clear idea of where this is going
+This project, when taken to completion, will be able to download torrent files using a bencode-encrypted torrent files.
