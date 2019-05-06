@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/MSJawad/rest_App#readme",
   "dependencies": {
-    "bencode": "^2.0.1"
+    "bencode": "^2.0.1",
+    "crypto": "^1.0.1"
   }
 }

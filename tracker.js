@@ -6,6 +6,8 @@ const urlParse = require ('url').parse;
 // sending through a socket requires a buffer
 const buffer = require('buffer').Buffer;
 
+const crypto = require('crypto');
+
 var getPeers = (torrent, callback) => {
     const url = urlParse(torrent.announce.toString('utf8'));
     
@@ -40,11 +42,24 @@ function respType(resp) {
 }
 
 function buildConnReq() {
-  // ...
+    var buf = Buffer.alloc(16);
+    buf.writeUInt32BE(0x417, 0);
+    buf.writeUInt32BE(0x27101980, 4);
+    // action
+    buf.writeUInt32BE(0, 8); // 4
+    // transaction id
+    crypto.randomBytes(4).copy(buf, 12);
+    
+    return buf;
 }
 
 function parseConnResp(resp) {
-  // ...
+    var obj = {
+        action: resp.readUInt32BE(0),
+        transaction_id: resp.readUInt32BE(4),
+        connection_id: resp.slice(8)
+    }
+    return obj;
 }
 
 function buildAnnounceReq(connId) {
