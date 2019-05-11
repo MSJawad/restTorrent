@@ -19,6 +19,7 @@
   "homepage": "https://github.com/MSJawad/rest_App#readme",
   "dependencies": {
     "bencode": "^2.0.1",
+    "bignum": "^0.13.0",
     "crypto": "^1.0.1"
   }
 }
