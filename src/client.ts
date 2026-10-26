@@ -39,6 +39,8 @@ export class Client {
   readonly stateDir: string;
   #options: ClientOptions;
   #torrents = new Map<string, { torrent: Torrent; addedAt: string }>();
+  /** Info hashes whose add() is still writing state, so a concurrent add() of the same torrent is a duplicate. */
+  #pending = new Set<string>();
 
   constructor(options: ClientOptions) {
     this.#options = options;
@@ -79,14 +81,19 @@ export class Client {
   /** Adds a torrent from the bytes of a .torrent file and starts it. */
   async add(data: Buffer, { paused = false } = {}): Promise<Torrent> {
     const meta = parseMetainfo(data);
-    if (this.#torrents.has(meta.infoHashHex)) {
+    if (this.#torrents.has(meta.infoHashHex) || this.#pending.has(meta.infoHashHex)) {
       throw new DuplicateTorrentError(`torrent ${meta.infoHashHex} is already added`);
     }
-    const state: SavedState = { paused, addedAt: new Date().toISOString() };
-    await mkdir(this.stateDir, { recursive: true });
-    await writeFile(join(this.stateDir, `${meta.infoHashHex}.torrent`), data);
-    await this.#save(meta.infoHashHex, state);
-    return this.#start(data, state);
+    this.#pending.add(meta.infoHashHex);
+    try {
+      const state: SavedState = { paused, addedAt: new Date().toISOString() };
+      await mkdir(this.stateDir, { recursive: true });
+      await writeFile(join(this.stateDir, `${meta.infoHashHex}.torrent`), data);
+      await this.#save(meta.infoHashHex, state);
+      return this.#start(data, state);
+    } finally {
+      this.#pending.delete(meta.infoHashHex);
+    }
   }
 
   get(id: string): Torrent | undefined {

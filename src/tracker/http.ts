@@ -97,12 +97,29 @@ export async function announceHttp(
       headers: { 'user-agent': 'restTorrent' },
     });
     if (!res.ok) throw new TrackerError(`tracker returned HTTP ${res.status}`);
-    body = Buffer.from(await res.arrayBuffer());
+    body = await readBody(res, MAX_RESPONSE_BYTES);
   } catch (err) {
     if (err instanceof TrackerError) throw err;
     if (timeout.aborted) throw new TrackerError(`tracker ${announce} timed out`);
     throw new TrackerError(`tracker ${announce} unreachable: ${(err as Error).message}`);
   }
-  if (body.length > MAX_RESPONSE_BYTES) throw new TrackerError('tracker response too large');
   return parseAnnounceResponse(body);
+}
+
+/** Reads the body up to `limit` bytes; the tracker is untrusted, so give up as soon as it sends more. */
+async function readBody(res: Response, limit: number): Promise<Buffer> {
+  if (Number(res.headers.get('content-length') ?? 0) > limit) {
+    await res.body?.cancel();
+    throw new TrackerError('tracker response too large');
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  if (res.body) {
+    for await (const chunk of res.body) {
+      size += chunk.byteLength;
+      if (size > limit) throw new TrackerError('tracker response too large');
+      chunks.push(Buffer.from(chunk));
+    }
+  }
+  return Buffer.concat(chunks);
 }

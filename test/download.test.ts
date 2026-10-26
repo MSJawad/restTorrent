@@ -3,7 +3,7 @@
 // software (Transmission and opentracker).
 
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -26,6 +26,14 @@ function waitFor(torrent: Torrent, timeout = 20_000): Promise<void> {
       }
     });
   });
+}
+
+async function waitUntil(condition: () => boolean, timeout = 5000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for a condition');
+    await new Promise((r) => setTimeout(r, 5));
+  }
 }
 
 async function assertFilesMatch(dir: string, fixture: Fixture): Promise<void> {
@@ -130,6 +138,48 @@ describe('downloading', () => {
     }
   });
 
+  it('re-announces after the interval the tracker asked for, not its minimum', async () => {
+    const fixture = make('interval');
+    const tracker = await startHttpTracker([], { interval: 10, minInterval: 1 });
+    const torrent = new Torrent({ ...fixture.meta, announce: [[tracker.url]] }, {
+      downloadDir: dir,
+      peerId: generatePeerId(),
+      port: 6881,
+      minAnnounceInterval: 1,
+    });
+    try {
+      await torrent.start();
+      await waitUntil(() => tracker.announces.length === 1);
+      await new Promise((r) => setTimeout(r, 2000));
+      assert.equal(tracker.announces.length, 1, 're-announced before the 10 s interval');
+    } finally {
+      await torrent.destroy();
+      await tracker.close();
+    }
+  });
+
+  it('reconnects at once after a pause to peers it disconnected itself', async () => {
+    const fixture = make('reconnect');
+    const peer = await startSeeder(fixture, { silent: true });
+    const torrent = new Torrent({ ...fixture.meta, announce: [] }, {
+      downloadDir: dir,
+      peerId: generatePeerId(),
+      port: 6881,
+    });
+    try {
+      await torrent.start();
+      torrent.addPeer({ host: '127.0.0.1', port: peer.port });
+      await waitUntil(() => torrent.stats().peers.connected === 1);
+      assert.equal(torrent.pause(), true);
+      assert.equal(torrent.stats().peers.connected, 0);
+      assert.equal(torrent.resume(), true);
+      await waitUntil(() => peer.connections === 2 && torrent.stats().peers.connected === 1, 2000);
+    } finally {
+      await torrent.destroy();
+      await peer.close();
+    }
+  });
+
   it('pauses and resumes', async () => {
     const fixture = make('pause');
     const seeder = await startSeeder(fixture);
@@ -170,6 +220,26 @@ describe('downloading', () => {
     await started;
     assert.ok(torrent.stats().pieces.checked < fixture.meta.pieceHashes.length, 'the check stopped early');
     assert.notEqual(torrent.state, 'error');
+  });
+
+  it('lets the check stop before deleting the files of a torrent destroyed mid-check', async () => {
+    const fixture = makeTorrent({ name: 'delete-mid-check', files: randomFiles({ 'a.bin': 4_000_000 }), pieceLength: 16_384 });
+    const target = join(dir, 'delete-mid-check');
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, 'a.bin'), fixture.files[0]!.data);
+    const torrent = new Torrent({ ...fixture.meta, announce: [] }, {
+      downloadDir: dir,
+      peerId: generatePeerId(),
+      port: 6881,
+    });
+    let checkStopped = false;
+    const started = torrent.start().then(() => (checkStopped = true));
+    // Wait until a piece read is in flight, then pull the files out from under it.
+    await waitUntil(() => torrent.stats().pieces.checked > 0);
+    await torrent.destroy({ deleteFiles: true });
+    assert.ok(checkStopped, 'destroy resolved while the check was still reading the files');
+    await started;
+    await assert.rejects(access(target), 'the deleted torrent left files behind');
   });
 
   it('finishes immediately when the data is already complete', async () => {

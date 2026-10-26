@@ -101,6 +101,39 @@ describe('HTTP tracker', () => {
     assert.match(seenQuery, /info_hash=%01%23Eg/);
   });
 
+  it('stops reading a response that grows past the size limit', async () => {
+    const chunk = Buffer.alloc(64 * 1024, 'd');
+    let sent = 0;
+    const server = createServer((req, res) => {
+      res.on('error', () => {});
+      if (req.url === '/declared') {
+        // Says it will be huge but sends almost nothing, so only the header can reject it.
+        res.writeHead(200, { 'content-length': String(2 * 1024 * 1024) });
+        res.write(chunk);
+        return;
+      }
+      const pump = () => {
+        while (!res.destroyed) {
+          sent += chunk.length;
+          if (!res.write(chunk)) break;
+        }
+      };
+      res.on('drain', pump);
+      pump();
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    after(() => {
+      server.closeAllConnections();
+      server.close();
+    });
+    const { port } = server.address() as AddressInfo;
+    const started = Date.now();
+    await assert.rejects(announceHttp(`http://127.0.0.1:${port}/endless`, params, { timeout: 5000 }), /too large/);
+    await assert.rejects(announceHttp(`http://127.0.0.1:${port}/declared`, params, { timeout: 5000 }), /too large/);
+    assert.ok(Date.now() - started < 4000, 'gave up without waiting for the timeout');
+    assert.ok(sent < 32 * 1024 * 1024, `kept reading an endless response: ${sent} bytes`);
+  });
+
   it('times out on a tracker that never answers', async () => {
     const server = createServer(() => {}); // accepts, never responds
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

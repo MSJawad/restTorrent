@@ -30,6 +30,7 @@ type PeerEvents = {
   choke: [];
   unchoke: [];
   piece: [index: number, begin: number, block: Buffer];
+  /** The error is null when close() was called locally rather than caused by the peer or the network. */
   close: [error: Error | null];
 };
 

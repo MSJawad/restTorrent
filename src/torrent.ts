@@ -103,6 +103,8 @@ export class Torrent extends EventEmitter<TorrentEvents> {
   #abort: AbortController | null = null;
   /** Stops the initial check early when the torrent is destroyed. */
   #checkAbort = new AbortController();
+  /** The running start(), so destroy() releases the files only once the check has stopped. */
+  #starting: Promise<void> | null = null;
   #tracker = { lastAnnounce: null as string | null, lastError: null as string | null, peersReturned: 0 };
   #destroyed = false;
   /** Set when pause is requested while the initial check is still running. */
@@ -132,7 +134,12 @@ export class Torrent extends EventEmitter<TorrentEvents> {
   }
 
   /** Re-checks existing data on disk, then starts downloading unless `paused`. */
-  async start({ paused = false } = {}): Promise<void> {
+  start({ paused = false } = {}): Promise<void> {
+    this.#starting = this.#check(paused).finally(() => (this.#starting = null));
+    return this.#starting;
+  }
+
+  async #check(paused: boolean): Promise<void> {
     this.#pauseAfterCheck = paused;
     this.#setState('checking');
     this.#checked = 0;
@@ -143,11 +150,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
         (checked) => (this.#checked = checked),
         this.#checkAbort.signal,
       );
-      if (this.#destroyed) {
-        // destroy() may have closed the files while the check was mid-read.
-        await this.storage.close();
-        return;
-      }
+      if (this.#destroyed) return;
       for (let i = 0; i < have.size; i++) {
         if (have.has(i)) {
           this.picker.complete(i);
@@ -160,10 +163,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
       if (!this.#destroyed) this.#fail(err as Error);
       return;
     }
-    if (this.#destroyed) {
-      await this.storage.close();
-      return;
-    }
+    if (this.#destroyed) return;
     if (this.picker.have.complete) {
       await this.storage.close();
       this.#setState('completed');
@@ -212,6 +212,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
     this.#destroyed = true;
     this.#checkAbort.abort();
     this.#halt(this.state === 'downloading' ? 'stopped' : null);
+    await this.#starting;
     await Promise.allSettled(this.#pendingWrites);
     if (deleteFiles) await this.storage.remove();
     else await this.storage.close();
@@ -321,7 +322,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
         },
       );
       this.#announceFailures = 0;
-      const interval = Math.min(...results.map((r) => r.minInterval ?? r.interval));
+      const interval = Math.min(...results.map((r) => Math.max(r.interval, r.minInterval ?? 0)));
       delay = Math.min(Math.max(interval, this.#options.minAnnounceInterval), 3600);
     } catch (err) {
       if (signal.aborted) return;
@@ -377,10 +378,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
     const peer: ActivePeer = { conn, outstanding: new Map(), goodPieces: 0, hashFailures: 0 };
     this.#peers.set(key, peer);
 
-    conn.on('ready', () => {
-      debug('%s: connected to %s', this.meta.name, conn.address);
-      known.failures = 0;
-    });
+    conn.on('ready', () => debug('%s: connected to %s', this.meta.name, conn.address));
     conn.on('bitfield', (added) => {
       debug('%s: %s has %d/%d pieces', this.meta.name, conn.address, conn.bitfield.count, conn.bitfield.size);
       this.picker.addPeer(added);
@@ -399,14 +397,18 @@ export class Torrent extends EventEmitter<TorrentEvents> {
       debug('%s: choked by %s', this.meta.name, conn.address);
       this.#releaseAll(peer);
     });
-    conn.on('piece', (index, begin, block) => this.#onBlock(key, peer, index, begin, block));
+    conn.on('piece', (index, begin, block) => {
+      known.failures = 0;
+      this.#onBlock(key, peer, index, begin, block);
+    });
     conn.on('close', (err) => {
       debug('%s: disconnected from %s: %s', this.meta.name, conn.address, err?.message ?? 'closed');
       this.#releaseAll(peer);
       this.picker.removePeer(conn.bitfield);
       if (this.#peers.get(key) === peer) this.#peers.delete(key);
-      if (conn.remotePeerId === null) known.failures++;
-      // Back off from peers that keep failing; reconnect sooner to ones that worked.
+      // Back off from peers that keep failing or dropping us, not from ones we closed ourselves.
+      if (err === null) return;
+      known.failures++;
       known.nextAttempt = Date.now() + Math.min(15_000 * 2 ** known.failures, 600_000);
       if (known.failures >= 5) this.#known.delete(key);
     });

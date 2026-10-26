@@ -72,10 +72,12 @@ export interface Seeder {
  * A minimal seeding peer: answers the handshake, advertises every piece,
  * unchokes as soon as the client is interested, and serves requested blocks.
  * `corrupt` makes it send garbage for chosen pieces, to exercise hash checks.
+ * `silent` makes it stop after the handshake, so the client stays connected
+ * to a peer that never offers anything.
  */
 export async function startSeeder(
   fixture: Fixture,
-  options: { corrupt?: (index: number) => boolean; peerId?: Buffer } = {},
+  options: { corrupt?: (index: number) => boolean; peerId?: Buffer; silent?: boolean } = {},
 ): Promise<Seeder> {
   const { meta, payload } = fixture;
   const peerId = options.peerId ?? Buffer.from('-TS0001-' + 'x'.repeat(12));
@@ -102,6 +104,7 @@ export async function startSeeder(
             return;
           }
           socket.write(buildHandshake(meta.infoHash, peerId));
+          if (options.silent) continue;
           const bits = Buffer.alloc(Math.ceil(meta.pieceHashes.length / 8));
           for (let i = 0; i < meta.pieceHashes.length; i++) bits[i >> 3]! |= 0x80 >> (i & 7);
           socket.write(encodeMessage({ type: 'bitfield', bitfield: bits }));
@@ -134,7 +137,10 @@ export interface FakeHttpTracker {
 }
 
 /** An HTTP tracker that hands out a fixed list of peers as compact entries. */
-export async function startHttpTracker(peers: Array<{ host: string; port: number }>): Promise<FakeHttpTracker> {
+export async function startHttpTracker(
+  peers: Array<{ host: string; port: number }>,
+  options: { interval?: number; minInterval?: number } = {},
+): Promise<FakeHttpTracker> {
   const announces: URLSearchParams[] = [];
   const server: HttpServer = createHttpServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -147,7 +153,9 @@ export async function startHttpTracker(peers: Array<{ host: string; port: number
         return buf;
       }),
     );
-    res.end(encode({ interval: 1800, complete: peers.length, incomplete: 0, peers: compact }));
+    const reply: BencodeDict = { interval: options.interval ?? 1800, complete: peers.length, incomplete: 0, peers: compact };
+    if (options.minInterval !== undefined) reply['min interval'] = options.minInterval;
+    res.end(encode(reply));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
