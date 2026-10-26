@@ -3,6 +3,7 @@
 // verifies each finished piece against its SHA-1 hash and writes it to disk.
 
 import { EventEmitter } from 'node:events';
+import { debuglog } from 'node:util';
 import { Bitfield } from './bitfield.ts';
 import { pieceSize, type Metainfo } from './metainfo.ts';
 import { PeerConnection } from './peer/connection.ts';
@@ -67,6 +68,9 @@ interface KnownPeer extends PeerAddress {
   nextAttempt: number;
   banned: boolean;
 }
+
+/** Set NODE_DEBUG=resttorrent to trace trackers and peers. */
+const debug = debuglog('resttorrent');
 
 const MAINTENANCE_INTERVAL = 1000;
 const SPEED_WINDOW = 5;
@@ -296,6 +300,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
         { timeout: this.#options.trackerTimeout, signal },
         (result) => {
           if (signal.aborted) return;
+          debug('%s: %s returned %d peers', this.meta.name, result.url, result.peers.length);
           this.#tracker.lastAnnounce = new Date().toISOString();
           this.#tracker.peersReturned = result.peers.length;
           this.#tracker.lastError = null;
@@ -307,6 +312,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
       delay = Math.min(Math.max(interval, this.#options.minAnnounceInterval), 3600);
     } catch (err) {
       if (signal.aborted) return;
+      debug('%s: announce failed: %s', this.meta.name, (err as Error).message);
       this.#tracker.lastError = (err as Error).message;
       const retry = ANNOUNCE_RETRY_DELAYS[Math.min(this.#announceFailures, ANNOUNCE_RETRY_DELAYS.length - 1)];
       this.#announceFailures++;
@@ -359,9 +365,11 @@ export class Torrent extends EventEmitter<TorrentEvents> {
     this.#peers.set(key, peer);
 
     conn.on('ready', () => {
+      debug('%s: connected to %s', this.meta.name, conn.address);
       known.failures = 0;
     });
     conn.on('bitfield', (added) => {
+      debug('%s: %s has %d/%d pieces', this.meta.name, conn.address, conn.bitfield.count, conn.bitfield.size);
       this.picker.addPeer(added);
       this.#updateInterest(peer);
     });
@@ -370,10 +378,17 @@ export class Torrent extends EventEmitter<TorrentEvents> {
       if (!this.picker.have.has(index)) conn.interested();
       this.#fillRequests(peer);
     });
-    conn.on('unchoke', () => this.#fillRequests(peer));
-    conn.on('choke', () => this.#releaseAll(peer));
+    conn.on('unchoke', () => {
+      debug('%s: unchoked by %s', this.meta.name, conn.address);
+      this.#fillRequests(peer);
+    });
+    conn.on('choke', () => {
+      debug('%s: choked by %s', this.meta.name, conn.address);
+      this.#releaseAll(peer);
+    });
     conn.on('piece', (index, begin, block) => this.#onBlock(key, peer, index, begin, block));
-    conn.on('close', () => {
+    conn.on('close', (err) => {
+      debug('%s: disconnected from %s: %s', this.meta.name, conn.address, err?.message ?? 'closed');
       this.#releaseAll(peer);
       this.picker.removePeer(conn.bitfield);
       if (this.#peers.get(key) === peer) this.#peers.delete(key);
@@ -440,6 +455,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
     if (!sha1(data).equals(this.meta.pieceHashes[index] as Buffer)) {
       this.picker.reset(index);
       this.#corruptPieces++;
+      debug('%s: piece %d failed its hash check', this.meta.name, index);
       // Several peers may have sent blocks of the piece, so ban a peer only
       // once its bad pieces clearly outnumber its good ones.
       for (const key of contributors) {

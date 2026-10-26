@@ -99,8 +99,12 @@ function card(torrent) {
   el.querySelector('.keep').addEventListener('click', () => remove(false));
   el.querySelector('.delete').addEventListener('click', () => remove(true));
   // Load the file list only when it is opened; the event stream omits it.
-  el.querySelector('.files').addEventListener('toggle', (event) => {
-    if (event.currentTarget.open) loadFiles(torrent.id);
+  const filesToggle = el.querySelector('.files-toggle');
+  filesToggle.addEventListener('click', () => {
+    const open = filesToggle.getAttribute('aria-expanded') !== 'true';
+    filesToggle.setAttribute('aria-expanded', String(open));
+    el.querySelector('.files').hidden = !open;
+    if (open) loadFiles(torrent.id);
   });
   cards.set(torrent.id, el);
   list.append(el);
@@ -112,13 +116,16 @@ async function loadFiles(id) {
   if (!el) return;
   try {
     const torrent = await api('GET', `/api/torrents/${id}`);
-    const ul = el.querySelector('.files ul');
+    const ul = el.querySelector('.files');
     ul.replaceChildren(
       ...torrent.files.map((file) => {
         const li = document.createElement('li');
         const path = document.createElement('span');
         path.className = 'path';
-        path.textContent = file.path;
+        // Multi-file torrents keep their files in a folder named after the
+        // torrent; leave that prefix off so the file names stay visible.
+        const prefix = `${torrent.name}/`;
+        path.textContent = file.path.startsWith(prefix) ? file.path.slice(prefix.length) : file.path;
         path.title = file.path;
         const pct = document.createElement('span');
         pct.className = 'pct';
@@ -165,9 +172,9 @@ function render(torrent) {
   error.hidden = !problem;
   error.textContent = problem ? (torrent.error ? problem : `Tracker: ${problem}`) : '';
 
-  el.querySelector('.files summary').textContent =
+  el.querySelector('.files-toggle').textContent =
     `${torrent.fileCount} file${torrent.fileCount === 1 ? '' : 's'} · ${torrent.pieces.total} pieces`;
-  if (el.querySelector('.files').open) loadFiles(torrent.id);
+  if (!el.querySelector('.files').hidden) loadFiles(torrent.id);
 
   const toggle = el.querySelector('.toggle');
   const canResume = torrent.state === 'paused' || torrent.state === 'error';

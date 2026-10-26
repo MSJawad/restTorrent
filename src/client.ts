@@ -54,14 +54,24 @@ export class Client {
     } catch {
       return;
     }
+    const saved: Array<{ data: Buffer; state: SavedState }> = [];
     for (const name of names.filter((n) => n.endsWith('.torrent'))) {
       const id = name.slice(0, -'.torrent'.length);
       try {
         const data = await readFile(join(this.stateDir, name));
         const state = JSON.parse(await readFile(join(this.stateDir, `${id}.json`), 'utf8')) as SavedState;
-        this.#start(data, state);
+        saved.push({ data, state });
       } catch (err) {
         console.error(`skipping saved torrent ${name}: ${(err as Error).message}`);
+      }
+    }
+    // Keep the order the torrents were added in.
+    saved.sort((a, b) => a.state.addedAt.localeCompare(b.state.addedAt));
+    for (const { data, state } of saved) {
+      try {
+        this.#start(data, state);
+      } catch (err) {
+        console.error(`skipping saved torrent: ${(err as Error).message}`);
       }
     }
   }

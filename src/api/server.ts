@@ -35,7 +35,8 @@ export function summary(client: Client, torrent: Torrent) {
 }
 
 export function detail(client: Client, torrent: Torrent) {
-  return { ...torrent.stats(), addedAt: client.addedAt(torrent.id) ?? null };
+  const stats = torrent.stats();
+  return { ...stats, fileCount: stats.files.length, addedAt: client.addedAt(torrent.id) ?? null };
 }
 
 export function createApiServer(client: Client): Server {

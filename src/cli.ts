@@ -4,7 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createApiServer } from './api/server.ts';
 import { Client, generatePeerId } from './client.ts';
@@ -111,22 +111,22 @@ async function download(file: string, out: string, peerPort: number): Promise<nu
   const meta = parseMetainfo(await readFile(file));
   const torrent = new Torrent(meta, { downloadDir: out, peerId: generatePeerId(), port: peerPort });
   console.log(`${meta.name}  ${formatBytes(meta.length)}, ${meta.pieceHashes.length} pieces, ${meta.files.length} file(s)`);
-  console.log(`Saving to ${resolve(out)}`);
+  console.log(`Saving to ${displayPath(out)}`);
 
   const tty = process.stdout.isTTY;
   const started = Date.now();
   let lastLog = 0;
-  const render = () => {
+  const render = (final = false) => {
     const stats = torrent.stats();
     const line = progressLine(stats, tty ? process.stdout.columns : 100);
     if (tty) {
       process.stdout.write(`\r\x1b[2K${line}`);
-    } else if (Date.now() - lastLog >= 5000) {
+    } else if (final || Date.now() - lastLog >= 5000) {
       console.log(line);
       lastLog = Date.now();
     }
   };
-  const timer = setInterval(render, 500);
+  const timer = setInterval(() => render(), 500);
 
   let interrupted = false;
   const onSignal = () => {
@@ -139,15 +139,27 @@ async function download(file: string, out: string, peerPort: number): Promise<nu
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 
+  let resumed = false;
+  let resumedBytes = 0;
   const result = await new Promise<'done' | 'error'>((done) => {
     torrent.on('done', () => done('done'));
     torrent.on('state', (state) => {
       if (state === 'error') done('error');
+      if (state === 'downloading' && !resumed) {
+        resumed = true;
+        const { pieces, downloaded } = torrent.stats();
+        const { have, total } = pieces;
+        resumedBytes = downloaded;
+        if (have > 0) {
+          if (tty) process.stdout.write('\r\x1b[2K');
+          console.log(`Resuming: ${have} of ${total} pieces already on disk and verified`);
+        }
+      }
     });
     void torrent.start();
   });
   clearInterval(timer);
-  render();
+  render(true);
   if (tty) process.stdout.write('\n');
   await torrent.destroy();
   if (result === 'error') {
@@ -155,8 +167,18 @@ async function download(file: string, out: string, peerPort: number): Promise<nu
     return 1;
   }
   const seconds = (Date.now() - started) / 1000;
-  console.log(`Done in ${formatDuration(seconds)}, all ${meta.pieceHashes.length} pieces verified.`);
+  const fetched = meta.length - resumedBytes;
+  console.log(
+    `Done in ${formatDuration(seconds)} (${formatBytes(fetched / Math.max(seconds, 1))}/s average), ` +
+      `all ${meta.pieceHashes.length} pieces verified.`,
+  );
   return 0;
+}
+
+/** A path relative to the working directory when it is inside it, otherwise absolute. */
+function displayPath(path: string): string {
+  const rel = relative(process.cwd(), resolve(path));
+  return rel === '' ? '.' : rel.startsWith('..') || isAbsolute(rel) ? resolve(path) : rel;
 }
 
 function progressLine(stats: TorrentStats, columns: number): string {
@@ -164,12 +186,14 @@ function progressLine(stats: TorrentStats, columns: number): string {
     return `Checking existing data ${stats.pieces.checked}/${stats.pieces.total} pieces`;
   }
   const pct = `${(stats.progress * 100).toFixed(1).padStart(5)}%`;
-  const parts = [
-    `${formatBytes(stats.downloaded)} / ${formatBytes(stats.size)}`,
-    `${formatBytes(stats.downloadSpeed)}/s`,
-    `${stats.peers.connected} peer${stats.peers.connected === 1 ? '' : 's'}`,
-    `ETA ${formatDuration(stats.eta)}`,
-  ];
+  const parts = [`${formatBytes(stats.downloaded)} / ${formatBytes(stats.size)}`];
+  if (stats.state !== 'completed') {
+    parts.push(
+      `${formatBytes(stats.downloadSpeed)}/s`,
+      `${stats.peers.connected} peer${stats.peers.connected === 1 ? '' : 's'}`,
+      `ETA ${formatDuration(stats.eta)}`,
+    );
+  }
   if (stats.peers.connected === 0 && stats.tracker.lastError) parts.push(`tracker: ${stats.tracker.lastError}`);
   const tail = `${pct}  ${parts.join('  ')}`;
   const barWidth = Math.max(10, Math.min(30, columns - tail.length - 4));
