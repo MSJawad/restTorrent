@@ -39,7 +39,7 @@ export class Client {
   readonly stateDir: string;
   #options: ClientOptions;
   #torrents = new Map<string, { torrent: Torrent; addedAt: string }>();
-  /** Info hashes whose add() is still writing state, so a concurrent add() of the same torrent is a duplicate. */
+  /** Info hashes an add() or remove() is still working on, so a concurrent add() of the same torrent is a duplicate. */
   #pending = new Set<string>();
 
   constructor(options: ClientOptions) {
@@ -123,10 +123,15 @@ export class Client {
   }
 
   async remove(torrent: Torrent, { deleteFiles = false } = {}): Promise<void> {
-    this.#torrents.delete(torrent.id);
-    await torrent.destroy({ deleteFiles });
-    await rm(join(this.stateDir, `${torrent.id}.torrent`), { force: true });
-    await rm(join(this.stateDir, `${torrent.id}.json`), { force: true });
+    this.#pending.add(torrent.id);
+    try {
+      this.#torrents.delete(torrent.id);
+      await torrent.destroy({ deleteFiles });
+      await rm(join(this.stateDir, `${torrent.id}.torrent`), { force: true });
+      await rm(join(this.stateDir, `${torrent.id}.json`), { force: true });
+    } finally {
+      this.#pending.delete(torrent.id);
+    }
   }
 
   /** Stops every torrent (telling trackers) and closes files. */

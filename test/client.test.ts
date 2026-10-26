@@ -42,4 +42,20 @@ describe('Client', () => {
     const again = await client.add(fixture.torrent, { paused: true });
     assert.equal(client.get(fixture.meta.infoHashHex), again);
   });
+
+  it('refuses to re-add a torrent until its removal has released the files', async () => {
+    const fixture = makeTorrent({ name: 'readd', files: randomFiles({ 'a.bin': 20_000 }), pieceLength: 16_384 });
+    const id = fixture.meta.infoHashHex;
+    const first = await client.add(fixture.torrent, { paused: true });
+    const removing = client.remove(first, { deleteFiles: true });
+    assert.equal(client.get(id), undefined);
+    await assert.rejects(client.add(fixture.torrent, { paused: true }), DuplicateTorrentError);
+    await removing;
+
+    // Once the removal is done the same torrent can be added again, and its state survives.
+    const again = await client.add(fixture.torrent, { paused: true });
+    assert.equal(client.get(id), again);
+    const saved = await readdir(client.stateDir);
+    assert.ok(saved.includes(`${id}.torrent`) && saved.includes(`${id}.json`), 'state files of the re-added torrent');
+  });
 });
