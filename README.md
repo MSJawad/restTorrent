@@ -1,6 +1,6 @@
 # restTorrent
 
-[![CI](https://github.com/MSJawad/restTorrent/actions/workflows/ci.yml/badge.svg)](https://github.com/MSJawad/restTorrent/actions/workflows/ci.yml)
+[![CI](https://github.com/MSJawad/restTorrent/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/MSJawad/restTorrent/actions/workflows/ci.yml)
 
 A BitTorrent client written from scratch in TypeScript, with a REST API and a small web page for
 managing downloads. It has no runtime dependencies: bencode, the tracker protocols and the peer
