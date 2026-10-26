@@ -176,7 +176,7 @@ npm run test:e2e  # end-to-end test, needs Docker
   response encoding, the piece-to-file mapping, the wire protocol reader, and the piece picker.
 - **Integration tests** run real downloads on 127.0.0.1 against in-process seeders and a fake
   tracker: a multi-file torrent from two seeders, a peer that sends corrupt data, resuming a
-  partial download, pausing, and the whole REST API.
+  partial download, pausing, the CLI as a child process, and the whole REST API.
 - **End-to-end test** ([test/e2e/run.sh](test/e2e/run.sh)) starts
   [opentracker](https://erdgeist.org/arts/software/opentracker/) and a
   [Transmission](https://transmissionbt.com/) seed in Docker, has Transmission create a multi-file

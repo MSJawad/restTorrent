@@ -44,8 +44,6 @@ export class PeerConnection extends EventEmitter<PeerEvents> {
 
   amInterested = false;
   peerChoking = true;
-  /** Bytes of piece data received from this peer, for speed and stats. */
-  downloaded = 0;
 
   #socket: Socket | null = null;
   #reader = new MessageReader();
@@ -178,7 +176,6 @@ export class PeerConnection extends EventEmitter<PeerEvents> {
         break;
       }
       case 'piece':
-        this.downloaded += message.block.length;
         this.emit('piece', message.index, message.begin, message.block);
         break;
       default:
