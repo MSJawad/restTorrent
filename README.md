@@ -184,7 +184,7 @@ npm run test:e2e  # end-to-end test, needs Docker
   every byte with the original, and then checks that a deleted file is fetched again on resume.
   Everything stays on a private Docker network.
 
-CI runs all of these on every push and pull request.
+CI runs all of these on every pull request and on every push to master.
 
 ## History and credits
 
