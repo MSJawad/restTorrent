@@ -101,6 +101,8 @@ export class Torrent extends EventEmitter<TorrentEvents> {
   #announceTimer: NodeJS.Timeout | null = null;
   #announceFailures = 0;
   #abort: AbortController | null = null;
+  /** Stops the initial check early when the torrent is destroyed. */
+  #checkAbort = new AbortController();
   #tracker = { lastAnnounce: null as string | null, lastError: null as string | null, peersReturned: 0 };
   #destroyed = false;
   /** Set when pause is requested while the initial check is still running. */
@@ -137,8 +139,15 @@ export class Torrent extends EventEmitter<TorrentEvents> {
     this.#verifiedBytes = 0;
     for (let i = 0; i < this.picker.have.size; i++) this.picker.have.clear(i);
     try {
-      const have = await this.storage.verify((checked) => (this.#checked = checked));
-      if (this.#destroyed) return;
+      const have = await this.storage.verify(
+        (checked) => (this.#checked = checked),
+        this.#checkAbort.signal,
+      );
+      if (this.#destroyed) {
+        // destroy() may have closed the files while the check was mid-read.
+        await this.storage.close();
+        return;
+      }
       for (let i = 0; i < have.size; i++) {
         if (have.has(i)) {
           this.picker.complete(i);
@@ -148,10 +157,13 @@ export class Torrent extends EventEmitter<TorrentEvents> {
       this.#checked = this.meta.pieceHashes.length;
       await this.storage.allocate();
     } catch (err) {
-      this.#fail(err as Error);
+      if (!this.#destroyed) this.#fail(err as Error);
       return;
     }
-    if (this.#destroyed) return;
+    if (this.#destroyed) {
+      await this.storage.close();
+      return;
+    }
     if (this.picker.have.complete) {
       await this.storage.close();
       this.#setState('completed');
@@ -198,6 +210,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
   async destroy({ deleteFiles = false } = {}): Promise<void> {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#checkAbort.abort();
     this.#halt(this.state === 'downloading' ? 'stopped' : null);
     await Promise.allSettled(this.#pendingWrites);
     if (deleteFiles) await this.storage.remove();

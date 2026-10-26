@@ -98,11 +98,12 @@ export class Storage {
    * Hashes the pieces already on disk and returns those that match. This is
    * how an interrupted download resumes without trusting any saved state.
    */
-  async verify(onProgress?: (checked: number) => void): Promise<Bitfield> {
+  async verify(onProgress?: (checked: number) => void, signal?: AbortSignal): Promise<Bitfield> {
     const have = new Bitfield(this.meta.pieceHashes.length);
     const anyData = await Promise.all(this.paths.map(fileSize));
     if (anyData.every((size) => size === 0)) return have;
     for (let i = 0; i < this.meta.pieceHashes.length; i++) {
+      if (signal?.aborted) break;
       const data = await this.readPiece(i);
       if (data && sha1(data).equals(this.meta.pieceHashes[i] as Buffer)) have.set(i);
       onProgress?.(i + 1);

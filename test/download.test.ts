@@ -154,6 +154,24 @@ describe('downloading', () => {
     }
   });
 
+  it('stops checking and releases its files when destroyed mid-check', async () => {
+    const fixture = makeTorrent({ name: 'big-check', files: randomFiles({ 'a.bin': 4_000_000 }), pieceLength: 16_384 });
+    const target = join(dir, 'big-check');
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, 'a.bin'), fixture.files[0]!.data);
+    const torrent = new Torrent({ ...fixture.meta, announce: [] }, {
+      downloadDir: dir,
+      peerId: generatePeerId(),
+      port: 6881,
+    });
+    const started = torrent.start();
+    assert.equal(torrent.state, 'checking');
+    await torrent.destroy();
+    await started;
+    assert.ok(torrent.stats().pieces.checked < fixture.meta.pieceHashes.length, 'the check stopped early');
+    assert.notEqual(torrent.state, 'error');
+  });
+
   it('finishes immediately when the data is already complete', async () => {
     const fixture = make('complete');
     const target = join(dir, 'complete');
