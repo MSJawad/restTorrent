@@ -85,6 +85,17 @@ describe('PiecePicker', () => {
     assert.ok(picker.have.has(0));
   });
 
+  it('requests every unfinished piece again after being cleared', () => {
+    const picker = new PiecePicker(layout, new Bitfield(4));
+    const peer = peerWith(4, [0, 1]);
+    const requests = picker.pick(peer, 10, new Set());
+    assert.equal(requests.length, 4);
+    for (const r of requests.filter((r) => r.index === 0)) picker.receive(0, r.begin, Buffer.alloc(BLOCK_SIZE));
+    assert.equal(picker.pick(peer, 10, new Set()).length, 0, 'everything is in flight or received');
+    picker.clear();
+    assert.deepEqual(keys(picker.pick(peer, 10, new Set())), keys(requests));
+  });
+
   it('duplicates in-flight requests across peers in endgame mode, never to the same peer twice', () => {
     const small = { pieceCount: 1, pieceLength: 2 * BLOCK_SIZE, length: 2 * BLOCK_SIZE };
     const picker = new PiecePicker(small, new Bitfield(1));

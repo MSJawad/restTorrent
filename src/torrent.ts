@@ -142,9 +142,12 @@ export class Torrent extends EventEmitter<TorrentEvents> {
   async #check(paused: boolean): Promise<void> {
     this.#pauseAfterCheck = paused;
     this.#setState('checking');
+    await Promise.allSettled(this.#pendingWrites);
     this.#checked = 0;
     this.#verifiedBytes = 0;
     for (let i = 0; i < this.picker.have.size; i++) this.picker.have.clear(i);
+    this.picker.clear();
+    this.#contributors.clear();
     try {
       const have = await this.storage.verify(
         (checked) => (this.#checked = checked),
@@ -506,6 +509,7 @@ export class Torrent extends EventEmitter<TorrentEvents> {
       },
       (err: Error) => {
         this.#pendingWrites.delete(write);
+        this.picker.reset(index);
         if (!this.#destroyed) this.#fail(new Error(`cannot write to disk: ${err.message}`));
       },
     );

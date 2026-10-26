@@ -180,6 +180,37 @@ describe('downloading', () => {
     }
   });
 
+  it('completes after a retry when a piece could not be written to disk', async () => {
+    const fixture = make('disk-full');
+    const seeder = await startSeeder(fixture);
+    const torrent = new Torrent({ ...fixture.meta, announce: [] }, {
+      downloadDir: dir,
+      peerId: generatePeerId(),
+      port: 6881,
+    });
+    // The first piece to land fails to write, as if the disk were full.
+    const writePiece = torrent.storage.writePiece.bind(torrent.storage);
+    let failed = false;
+    torrent.storage.writePiece = (index, data) => {
+      if (failed) return writePiece(index, data);
+      failed = true;
+      return Promise.reject(new Error('ENOSPC: no space left on device'));
+    };
+    try {
+      await torrent.start();
+      torrent.addPeer({ host: '127.0.0.1', port: seeder.port });
+      await waitUntil(() => torrent.state === 'error');
+      assert.match(torrent.error ?? '', /cannot write to disk: ENOSPC/);
+      assert.equal(torrent.resume(), true);
+      await waitFor(torrent, 10_000);
+      await assertFilesMatch(dir, fixture);
+      assert.equal(torrent.stats().progress, 1);
+    } finally {
+      await torrent.destroy();
+      await seeder.close();
+    }
+  });
+
   it('pauses and resumes', async () => {
     const fixture = make('pause');
     const seeder = await startSeeder(fixture);

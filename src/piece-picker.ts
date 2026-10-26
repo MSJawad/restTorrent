@@ -186,6 +186,11 @@ export class PiecePicker {
     this.#active.delete(index);
   }
 
+  /** Throws away every piece in progress, for a download that starts over. */
+  clear(): void {
+    this.#active.clear();
+  }
+
   #rarestNewPiece(peer: Bitfield): number {
     let best = -1;
     let bestAvailability = Infinity;
