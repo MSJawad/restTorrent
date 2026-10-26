@@ -77,6 +77,8 @@ const SPEED_WINDOW = 5;
 const MAX_KNOWN_PEERS = 500;
 const MAX_HASH_FAILURES = 3;
 const ANNOUNCE_RETRY_DELAYS = [15, 30, 60, 120, 300];
+/** Bound on the final `completed` / `stopped` announce, in milliseconds. */
+const FINAL_ANNOUNCE_TIMEOUT = 3000;
 
 export class Torrent extends EventEmitter<TorrentEvents> {
   readonly meta: Metainfo;
@@ -92,6 +94,8 @@ export class Torrent extends EventEmitter<TorrentEvents> {
   /** Peers that sent blocks of each in-progress piece, to blame on a hash failure. */
   #contributors = new Map<number, Set<string>>();
   #pendingWrites = new Set<Promise<void>>();
+  /** Final `completed` / `stopped` announces still in flight, so destroy() can wait for them. */
+  #pendingAnnounces = new Set<Promise<void>>();
   #verifiedBytes = 0;
   #checked = 0;
   #received = 0;
@@ -219,6 +223,8 @@ export class Torrent extends EventEmitter<TorrentEvents> {
     await Promise.allSettled(this.#pendingWrites);
     if (deleteFiles) await this.storage.remove();
     else await this.storage.close();
+    // The CLI and the server exit as soon as this resolves, so the final announce has to be out by then.
+    await Promise.all(this.#pendingAnnounces);
   }
 
   /** Adds a peer to try, as if a tracker had returned it. */
@@ -273,9 +279,15 @@ export class Torrent extends EventEmitter<TorrentEvents> {
     this.#peers.clear();
     if (event && !this.#trackers.empty) {
       // Best effort and short: the tracker only uses this to tidy its peer list.
-      this.#trackers
-        .announce(this.#announceParams(event), { timeout: 3000 })
-        .catch(() => {});
+      // The signal caps the whole attempt, UDP retries included, since destroy() waits for it.
+      const announce = this.#trackers
+        .announce(this.#announceParams(event), {
+          timeout: FINAL_ANNOUNCE_TIMEOUT,
+          signal: AbortSignal.timeout(FINAL_ANNOUNCE_TIMEOUT),
+        })
+        .then(() => {}, () => {})
+        .finally(() => this.#pendingAnnounces.delete(announce));
+      this.#pendingAnnounces.add(announce);
     }
   }
 
