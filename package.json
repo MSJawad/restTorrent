@@ -1,25 +1,48 @@
 {
-  "name": "rest_App",
+  "name": "resttorrent",
   "version": "1.0.0",
-  "description": "a RESTful api",
-  "main": "index.js",
+  "description": "A BitTorrent client written from scratch in TypeScript, with a small REST API and web page",
+  "type": "module",
+  "bin": {
+    "resttorrent": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "test:e2e": "test/e2e/run.sh",
+    "start": "node dist/cli.js serve"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MSJawad/rest_App.git"
+    "url": "git+https://github.com/MSJawad/restTorrent.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "bittorrent",
+    "torrent",
+    "rest-api",
+    "typescript"
+  ],
+  "author": "Mohammad Solaiman Jawad",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/MSJawad/rest_App/issues"
+    "url": "https://github.com/MSJawad/restTorrent/issues"
   },
-  "homepage": "https://github.com/MSJawad/rest_App#readme",
-  "dependencies": {
-    "bencode": "^2.0.1",
-    "bignum": "^0.13.0",
-    "crypto": "^1.0.1"
+  "homepage": "https://github.com/MSJawad/restTorrent#readme",
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0"
   }
 }

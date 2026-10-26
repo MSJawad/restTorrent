@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>restTorrent</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <div>
+          <h1>restTorrent</h1>
+          <p class="tagline">BitTorrent client with a REST API</p>
+        </div>
+      </div>
+      <label class="button primary" for="file">
+        <span aria-hidden="true">+</span> Add torrent
+      </label>
+      <input id="file" type="file" accept=".torrent,application/x-bittorrent" hidden multiple />
+    </header>
+
+    <main>
+      <div id="drop" class="drop" hidden>Drop .torrent files to add them</div>
+      <p id="notice" class="notice" role="alert" hidden></p>
+      <section id="empty" class="empty" hidden>
+        <h2>No torrents yet</h2>
+        <p>Add a <code>.torrent</code> file with the button above, drop one onto this page, or use the API:</p>
+        <pre><code>curl --data-binary @file.torrent \
+  -H 'Content-Type: application/x-bittorrent' \
+  <span id="api-base">http://127.0.0.1:9080</span>/api/torrents</code></pre>
+      </section>
+      <ul id="torrents" class="torrents" aria-live="polite"></ul>
+    </main>
+
+    <footer class="foot">
+      <span id="connection" class="connection">Connecting...</span>
+      <a href="https://github.com/MSJawad/restTorrent#rest-api">API reference</a>
+    </footer>
+
+    <template id="torrent-template">
+      <li class="torrent">
+        <div class="row">
+          <h2 class="name"></h2>
+          <span class="state"></span>
+        </div>
+        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div></div>
+        <div class="row meta">
+          <span class="amount"></span>
+          <span class="speed"></span>
+          <span class="peers"></span>
+          <span class="eta"></span>
+        </div>
+        <p class="error" hidden></p>
+        <div class="row actions">
+          <details class="files">
+            <summary></summary>
+            <ul></ul>
+          </details>
+          <div class="buttons">
+            <button type="button" class="button toggle"></button>
+            <button type="button" class="button remove">Remove</button>
+          </div>
+        </div>
+        <div class="confirm" hidden>
+          <span>Remove this torrent?</span>
+          <button type="button" class="button keep">Keep files</button>
+          <button type="button" class="button danger delete">Delete files too</button>
+          <button type="button" class="button cancel">Cancel</button>
+        </div>
+      </li>
+    </template>
+  </body>
+</html>
