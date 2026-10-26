@@ -325,8 +325,9 @@ export class Torrent extends EventEmitter<TorrentEvents> {
         },
       );
       this.#announceFailures = 0;
-      const interval = Math.min(...results.map((r) => Math.max(r.interval, r.minInterval ?? 0)));
-      delay = Math.min(Math.max(interval, this.#options.minAnnounceInterval), 3600);
+      const interval = Math.min(...results.map((r) => r.interval));
+      const floor = Math.max(...results.map((r) => r.minInterval ?? 0));
+      delay = Math.min(Math.max(interval, floor, this.#options.minAnnounceInterval), 3600);
     } catch (err) {
       if (signal.aborted) return;
       debug('%s: announce failed: %s', this.meta.name, (err as Error).message);

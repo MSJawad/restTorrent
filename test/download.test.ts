@@ -138,23 +138,31 @@ describe('downloading', () => {
     }
   });
 
-  it('re-announces after the interval the tracker asked for, not its minimum', async () => {
-    const fixture = make('interval');
-    const tracker = await startHttpTracker([], { interval: 10, minInterval: 1 });
-    const torrent = new Torrent({ ...fixture.meta, announce: [[tracker.url]] }, {
-      downloadDir: dir,
-      peerId: generatePeerId(),
-      port: 6881,
-      minAnnounceInterval: 1,
-    });
+  it('re-announces after the interval asked for, never sooner than any tracker allows', async () => {
+    // One torrent with a single tracker whose minimum is far below its interval,
+    // and one whose second tier would allow announcing every second while the
+    // first tier insists on 10 s between announces.
+    const single = await startHttpTracker([], { interval: 10, minInterval: 1 });
+    const strict = await startHttpTracker([], { interval: 10, minInterval: 10 });
+    const lax = await startHttpTracker([], { interval: 1, minInterval: 1 });
+    const trackers = [single, strict, lax];
+    const options = { downloadDir: dir, peerId: generatePeerId(), port: 6881, minAnnounceInterval: 1 };
+    const torrents = [
+      new Torrent({ ...make('interval').meta, announce: [[single.url]] }, options),
+      new Torrent({ ...make('interval-tiers').meta, announce: [[strict.url], [lax.url]] }, options),
+    ];
     try {
-      await torrent.start();
-      await waitUntil(() => tracker.announces.length === 1);
+      await Promise.all(torrents.map((t) => t.start()));
+      await waitUntil(() => trackers.every((t) => t.announces.length === 1));
       await new Promise((r) => setTimeout(r, 2000));
-      assert.equal(tracker.announces.length, 1, 're-announced before the 10 s interval');
+      assert.deepEqual(
+        trackers.map((t) => t.announces.length),
+        [1, 1, 1],
+        're-announced before the 10 s interval',
+      );
     } finally {
-      await torrent.destroy();
-      await tracker.close();
+      await Promise.all(torrents.map((t) => t.destroy()));
+      await Promise.all(trackers.map((t) => t.close()));
     }
   });
 
