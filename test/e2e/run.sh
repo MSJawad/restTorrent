@@ -8,7 +8,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(cd ../.. && pwd)"
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/resttorrent-e2e.XXXXXX")"
+TMP="${TMPDIR:-/tmp}"
+WORK="$(mktemp -d "${TMP%/}/resttorrent-e2e.XXXXXX")"
 export WORK PUID="$(id -u)" PGID="$(id -g)"
 compose() { docker compose -f docker-compose.yml "$@"; }
 
@@ -71,7 +72,7 @@ for proto in http udp; do
   echo "identical: $(find "$WORK/out/$proto/payload" -type f | wc -l | tr -d ' ') files"
 done
 
-step "Resuming: delete one file, download again, expect only its pieces to be fetched"
+step "Resuming: delete one file and download again"
 rm "$WORK/out/http/payload/videos/trailer.bin"
 compose run --rm -T -e NODE_DEBUG="${NODE_DEBUG:-}" client download /data/http.torrent --out /out/http
 diff -r "$WORK/seed/payload" "$WORK/out/http/payload"
